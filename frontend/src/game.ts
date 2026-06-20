@@ -6,7 +6,8 @@ import type {
   ScreenPoint,
   CurvePoint,
   BackgroundStar,
-  LevelData
+  LevelData,
+  HarmonicScanState
 } from './types';
 import { Renderer } from './renderer';
 import { getLevel, verifyEdge } from './api';
@@ -15,7 +16,8 @@ import {
   smoothPath,
   simplifyPath,
   distance,
-  clamp
+  clamp,
+  isSimpleFrequencyRatio
 } from './utils';
 
 const SNAP_DISTANCE = 35;
@@ -49,7 +51,8 @@ export class Game {
       time: 0,
       showFrequencies: false,
       isComplete: false,
-      snapTargetId: null
+      snapTargetId: null,
+      harmonicScan: this.createEmptyHarmonicScanState()
     };
 
     this.resize();
@@ -63,6 +66,64 @@ export class Game {
       currentPos: null,
       points: [],
       lastSampleTime: 0
+    };
+  }
+
+  private createEmptyHarmonicScanState(): HarmonicScanState {
+    return {
+      active: false,
+      hoveredAnchorId: null,
+      targetStarIds: new Set(),
+      harmonicOnlyStarIds: new Set()
+    };
+  }
+
+  private updateHarmonicScan(hoveredAnchor: AnchorPoint | null): void {
+    if (!this.state.levelData || !hoveredAnchor) {
+      this.state.harmonicScan = this.createEmptyHarmonicScanState();
+      return;
+    }
+
+    const isAnchor = hoveredAnchor.id.startsWith('a') || hoveredAnchor.id.startsWith('b') || hoveredAnchor.id.startsWith('c');
+    if (!isAnchor) {
+      this.state.harmonicScan = this.createEmptyHarmonicScanState();
+      return;
+    }
+
+    const targetStarIds = new Set<string>();
+    const harmonicOnlyStarIds = new Set<string>();
+    const hoveredFreq = hoveredAnchor.frequency;
+
+    const definedEdgeTargets = new Set<string>();
+    for (const edge of this.state.levelData.edges) {
+      if (edge.from === hoveredAnchor.id) {
+        definedEdgeTargets.add(edge.to);
+      } else if (edge.to === hoveredAnchor.id) {
+        definedEdgeTargets.add(edge.from);
+      }
+    }
+
+    for (const anchor of this.state.levelData.anchorPoints) {
+      if (anchor.id === hoveredAnchor.id) continue;
+
+      const isTargetAnchor = anchor.id.startsWith('a') || anchor.id.startsWith('b') || anchor.id.startsWith('c');
+      if (!isTargetAnchor) continue;
+
+      const isHarmonic = isSimpleFrequencyRatio(hoveredFreq, anchor.frequency);
+      const isDefinedTarget = definedEdgeTargets.has(anchor.id);
+
+      if (isDefinedTarget && isHarmonic) {
+        targetStarIds.add(anchor.id);
+      } else if (isHarmonic && !isDefinedTarget) {
+        harmonicOnlyStarIds.add(anchor.id);
+      }
+    }
+
+    this.state.harmonicScan = {
+      active: true,
+      hoveredAnchorId: hoveredAnchor.id,
+      targetStarIds,
+      harmonicOnlyStarIds
     };
   }
 
@@ -151,6 +212,7 @@ export class Game {
         points: [],
         lastSampleTime: performance.now()
       };
+      this.updateHarmonicScan(null);
     }
   }
 
@@ -169,9 +231,11 @@ export class Game {
       this.state.snapTargetId = (endAnchor && endAnchor.id !== this.state.drawState.startAnchorId)
         ? endAnchor.id
         : null;
+      this.updateHarmonicScan(null);
     } else {
       const anchor = this.findNearestAnchor(pos);
       this.state.snapTargetId = anchor ? anchor.id : null;
+      this.updateHarmonicScan(anchor);
     }
   }
 
@@ -345,6 +409,7 @@ export class Game {
     this.state.isComplete = false;
     this.state.drawState = this.createEmptyDrawState();
     this.state.snapTargetId = null;
+    this.state.harmonicScan = this.createEmptyHarmonicScanState();
     this.onProgressChange?.(0, this.state.levelData?.edges.length ?? 0);
   }
 
@@ -371,6 +436,7 @@ export class Game {
     this.state.drawState = this.createEmptyDrawState();
     this.state.snapTargetId = null;
     this.state.showFrequencies = false;
+    this.state.harmonicScan = this.createEmptyHarmonicScanState();
 
     this.onLevelChange?.(data);
     this.onProgressChange?.(0, data.edges.length);
@@ -469,7 +535,8 @@ export class Game {
         this.state.time,
         this.state.showFrequencies,
         this.state.snapTargetId ?? this.state.drawState.startAnchorId,
-        connectedIds
+        connectedIds,
+        this.state.harmonicScan
       );
 
       this.renderer.drawCompletionEffect(this.state.time, this.getProgress());

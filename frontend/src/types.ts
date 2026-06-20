@@ -66,6 +66,13 @@ export interface DrawState {
   lastSampleTime: number;
 }
 
+export interface HarmonicScanState {
+  active: boolean;
+  hoveredAnchorId: string | null;
+  targetStarIds: Set<string>;
+  harmonicOnlyStarIds: Set<string>;
+}
+
 export interface GameState {
   currentLevel: number;
   levelData: LevelData | null;
@@ -77,6 +84,7 @@ export interface GameState {
   showFrequencies: boolean;
   isComplete: boolean;
   snapTargetId: string | null;
+  harmonicScan: HarmonicScanState;
 }
 
 export interface VerifyResult {

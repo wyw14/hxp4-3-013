@@ -3,7 +3,8 @@ import type {
   AnchorPoint,
   Connection,
   ScreenPoint,
-  CurvePoint
+  CurvePoint,
+  HarmonicScanState
 } from './types';
 import { rotatePoint } from './utils';
 
@@ -146,18 +147,37 @@ export class Renderer {
     time: number,
     showFreq: boolean,
     highlightedId: string | null,
-    connectedIds: Set<string>
+    connectedIds: Set<string>,
+    harmonicScan?: HarmonicScanState
   ): void {
     for (const anchor of anchors) {
       const pos = this.getAnchorScreenPos(anchor, rotation);
       const twinkle = Math.sin(time * anchor.frequency * 0.8) * 0.3 + 0.7;
-      const brightness = (anchor.baseBrightness ?? 0.7) * twinkle;
-      const size = (anchor.size ?? 3) * (highlightedId === anchor.id ? 1.8 : 1);
+      let brightness = (anchor.baseBrightness ?? 0.7) * twinkle;
+      let size = (anchor.size ?? 3) * (highlightedId === anchor.id ? 1.8 : 1);
 
       const isAnchor = anchor.id.startsWith('a') || anchor.id.startsWith('b') || anchor.id.startsWith('c');
       const baseColor = isAnchor ? { r: 200, g: 220, b: 255 } : { r: 180, g: 180, b: 200 };
       const isConnected = connectedIds.has(anchor.id);
-      const connColor = isConnected ? { r: 255, g: 215, b: 100 } : baseColor;
+      let connColor = isConnected ? { r: 255, g: 215, b: 100 } : baseColor;
+
+      let isTargetStar = false;
+      let isHarmonicOnly = false;
+
+      if (harmonicScan && harmonicScan.active) {
+        isTargetStar = harmonicScan.targetStarIds.has(anchor.id);
+        isHarmonicOnly = harmonicScan.harmonicOnlyStarIds.has(anchor.id);
+
+        if (isTargetStar) {
+          const breath = Math.sin(time * 2.5) * 0.25 + 0.75;
+          brightness *= breath * 1.4;
+          size *= 1.2 + breath * 0.25;
+          connColor = { r: 120, g: 255, b: 180 };
+        } else if (isHarmonicOnly) {
+          brightness *= 0.4;
+          connColor = { r: 160, g: 140, b: 255 };
+        }
+      }
 
       const glowR = size * 8;
       const glow = this.ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, glowR);
@@ -178,6 +198,33 @@ export class Renderer {
       this.ctx.arc(pos.x, pos.y, size * 0.4, 0, Math.PI * 2);
       this.ctx.fillStyle = '#ffffff';
       this.ctx.fill();
+
+      if (isTargetStar) {
+        const ringPulse = Math.sin(time * 3) * 0.3 + 0.5;
+        this.ctx.beginPath();
+        this.ctx.arc(pos.x, pos.y, size * 2.2, 0, Math.PI * 2);
+        this.ctx.strokeStyle = `rgba(120, 255, 180, ${ringPulse * 0.7})`;
+        this.ctx.lineWidth = 2;
+        this.ctx.stroke();
+
+        this.ctx.beginPath();
+        this.ctx.arc(pos.x, pos.y, size * 3, 0, Math.PI * 2);
+        this.ctx.strokeStyle = `rgba(120, 255, 180, ${ringPulse * 0.3})`;
+        this.ctx.lineWidth = 1;
+        this.ctx.setLineDash([3, 5]);
+        this.ctx.stroke();
+        this.ctx.setLineDash([]);
+      }
+
+      if (isHarmonicOnly) {
+        this.ctx.beginPath();
+        this.ctx.arc(pos.x, pos.y, size * 1.8, 0, Math.PI * 2);
+        this.ctx.strokeStyle = `rgba(160, 140, 255, ${0.3 + Math.sin(time * 2) * 0.2})`;
+        this.ctx.lineWidth = 1;
+        this.ctx.setLineDash([2, 4]);
+        this.ctx.stroke();
+        this.ctx.setLineDash([]);
+      }
 
       if (highlightedId === anchor.id) {
         this.ctx.beginPath();
